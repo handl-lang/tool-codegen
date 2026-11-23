@@ -56,6 +56,8 @@
 pub mod change;
 pub mod engine;
 pub mod error;
+#[cfg(feature = "handl-term")]
+pub mod handl_term;
 pub mod journal;
 pub mod manifest;
 pub mod plan;

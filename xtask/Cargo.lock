@@ -219,10 +219,6 @@ name = "hnl-engine-typecheck"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-kit-arrow-lower"
-version = "0.1.0"
-
-[[patch.unused]]
 name = "handl-kit-data"
 version = "0.1.0"
 
@@ -324,10 +320,6 @@ version = "0.1.0"
 
 [[patch.unused]]
 name = "handl-plugin-module"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "handl-plugin-sdkgen"
 version = "0.1.0"
 
 [[patch.unused]]

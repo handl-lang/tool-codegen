@@ -17,12 +17,38 @@ fn cargo(args: &[&str]) -> bool {
         .unwrap_or(false)
 }
 
+// The `handl-term` feature gates `impl IrModule for handl_calculus::Term`;
+// run the Rust gates with it enabled so the feature code is actually
+// linted/tested/documented (the crate stays dep-free by default — the
+// feature only adds the optional `handl-calculus` dep).
+const FEATURES: &[&str] = &["--features", "handl-term"];
+
 fn gate() -> bool {
     for (name, args) in [
-        ("fmt", &["fmt", "--all", "--", "--check"][..]),
-        ("clippy", &["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"][..]),
-        ("test", &["test", "--workspace"][..]),
-        ("doc", &["doc", "--workspace", "--no-deps"][..]),
+        ("fmt", &[
+            "fmt",
+            "--all",
+            "--",
+            "--check",
+        ][..]),
+        (
+            "clippy",
+            &[
+                "clippy",
+                "--workspace",
+                "--all-targets",
+                FEATURES[0],
+                FEATURES[1],
+                "--",
+                "-D",
+                "warnings",
+            ][..],
+        ),
+        ("test", &["test", "--workspace", FEATURES[0], FEATURES[1]][..]),
+        (
+            "doc",
+            &["doc", "--workspace", "--no-deps", FEATURES[0], FEATURES[1]][..],
+        ),
     ] {
         if !cargo(args) {
             eprintln!("xtask gate: {name} failed");
@@ -37,10 +63,19 @@ fn main() {
     let ok = match task.as_str() {
         "fmt" => cargo(&["fmt", "--all", "--", "--check"]),
         "fmt-fix" => cargo(&["fmt", "--all"]),
-        "clippy" => cargo(&["clippy", "--workspace", "--all-targets", "--", "-D", "warnings"]),
+        "clippy" => cargo(&[
+            "clippy",
+            "--workspace",
+            "--all-targets",
+            FEATURES[0],
+            FEATURES[1],
+            "--",
+            "-D",
+            "warnings",
+        ]),
         "check" => cargo(&["check", "--workspace", "--all-targets"]),
-        "test" => cargo(&["test", "--workspace"]),
-        "doc" => cargo(&["doc", "--workspace", "--no-deps"]),
+        "test" => cargo(&["test", "--workspace", FEATURES[0], FEATURES[1]]),
+        "doc" => cargo(&["doc", "--workspace", "--no-deps", FEATURES[0], FEATURES[1]]),
         "gate" => gate(),
         other => {
             eprintln!("usage: cargo xtask [fmt|fmt-fix|clippy|check|test|doc|gate] (got {other:?})");

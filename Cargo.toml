@@ -11,10 +11,24 @@ categories = ["development-tools"]
 # Git-install only: https://github.com/handl-lang/engine-codegen (no crates.io).
 publish = false
 
+[features]
+# `handl-term` — `impl IrModule` for the arrow-calculus `Term`
+# (`handl-calculus`), so compile backends can write `Emitter<Term>`
+# against this kernel without tripping the orphan rule (the impl can
+# only live where the trait is local). Off by default: the kernel
+# stays free of calculus deps unless a consumer asks.
+handl-term = ["dep:handl-calculus"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 blake3 = "1"
+handl-calculus = { git = "https://github.com/handl-lang/kernel", branch = "main", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+
+# ADR-0128 §Resolution convention: the sibling checkout wins locally;
+# CI resolves the `branch = "main"` git dep.
+[patch."https://github.com/handl-lang/kernel"]
+handl-calculus = { path = "../kernel/crates/handl-calculus" }
