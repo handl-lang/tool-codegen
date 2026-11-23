@@ -1,0 +1,12 @@
+# Local sibling checkouts ([patch] tables) — dev-only, never committed.
+# Written by automation/scripts/dev-link.sh.
+/.cargo/
+# Library crate: the lock records sibling-dev state, never commit it.
+/Cargo.lock
+/target
+
+# myco worktree mount point (created by `myco init`)
+project/
+
+# xtask build artifacts
+xtask/target/
