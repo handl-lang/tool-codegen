@@ -7,7 +7,7 @@ name = "xtask"
 version = "0.0.0"
 
 [[patch.unused]]
-name = "handl-plugin-sdkgen-backend-webidl"
+name = "handl-kit-core"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -19,7 +19,7 @@ name = "handl-plugin-compile-handl"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-lib-transform"
+name = "handl-plugin-codegen-cli"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -35,7 +35,7 @@ name = "handl-plugin-lib-lang-parse"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-plugin-lib-lang-compile"
+name = "handl-lib-transform"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -47,19 +47,19 @@ name = "handl-kit-lang"
 version = "0.1.0"
 
 [[patch.unused]]
+name = "handl-plugin-lib-lang-compile"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "handl-plugin-lib-lang-run-compiled"
 version = "0.1.0"
 
 [[patch.unused]]
+name = "handl-plugin-codegen-backend-c"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "handl-lib-obj"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "handl-plugin-sdkgen-backend-c"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "handl-plugin-sdkgen-emitter-file"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -95,6 +95,10 @@ name = "handl-lib-prim-handl"
 version = "0.1.0"
 
 [[patch.unused]]
+name = "handl-plugin-codegen-emitter-python"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "handl-kit-test"
 version = "0.1.0"
 
@@ -104,6 +108,10 @@ version = "0.1.0"
 
 [[patch.unused]]
 name = "hnl-engine-exec-cranelift"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-plugin-codegen-backend-webidl"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -127,10 +135,6 @@ name = "handl-plugin-lib-serialize-yaml-c"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-lib-mood"
-version = "0.1.0"
-
-[[patch.unused]]
 name = "handl-kit-ffi"
 version = "0.1.0"
 
@@ -143,7 +147,7 @@ name = "handl-plugin-compile-js"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-plugin-sdkgen-cli"
+name = "handl-lib-mood"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -219,7 +223,51 @@ name = "hnl-engine-typecheck"
 version = "0.1.0"
 
 [[patch.unused]]
+name = "handl-kit-arrow-lower"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-kit-core"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "handl-kit-data"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-kit-data-prelude"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-kit-eqsat"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-kit-ffi"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-kit-lang"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-kit-mlopt"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-kit-prelude"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-kit-prelude-lang"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-kit-server"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-kit-stdlib"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -239,11 +287,19 @@ name = "handl-plugin-applier-default"
 version = "0.1.0"
 
 [[patch.unused]]
+name = "handl-plugin-codegen"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "handl-plugin-compile"
 version = "0.1.0"
 
 [[patch.unused]]
 name = "handl-plugin-exec-cache"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-plugin-ext-codegen"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -283,15 +339,15 @@ name = "handl-plugin-ext-refinement"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-plugin-ext-sdkgen"
-version = "0.1.0"
-
-[[patch.unused]]
 name = "handl-plugin-ext-test"
 version = "0.1.0"
 
 [[patch.unused]]
 name = "handl-plugin-ext-typecheck"
+version = "0.1.0"
+
+[[patch.unused]]
+name = "handl-plugin-ffi"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -331,6 +387,10 @@ name = "handl-test-utils"
 version = "0.1.0"
 
 [[patch.unused]]
+name = "hnl-ext-mlopt"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "handl-kit-server"
 version = "0.1.0"
 
@@ -352,10 +412,6 @@ version = "0.1.0"
 
 [[patch.unused]]
 name = "handl-plugin-lib-lang-lex"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "handl-plugin-sdkgen-emitter-python"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -415,13 +471,13 @@ name = "handl-lib-prim"
 version = "0.1.0"
 
 [[patch.unused]]
+name = "handl-plugin-codegen-emitter-file"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "handl-kit-data-prelude"
 version = "0.1.0"
 
 [[patch.unused]]
 name = "handl-egraph"
-version = "0.1.0"
-
-[[patch.unused]]
-name = "handl-kit-core"
 version = "0.1.0"
