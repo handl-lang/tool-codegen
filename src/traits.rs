@@ -61,6 +61,15 @@ pub struct EmitContext {
     pub config: BTreeMap<String, String>,
     /// Source language name when known (canonical kit name).
     pub language: Option<String>,
+    /// Input spec/header path the `Source` parses (the plugin's
+    /// `CodegenRequest::spec`, already resolved to a local path).
+    pub spec_path: Option<PathBuf>,
+    /// Provenance URL (`--from-url`/`--source-url`) — sources stamp it
+    /// into the IR so emitters can render `--- source:` headers.
+    pub source_url: Option<String>,
+    /// Cache directory for doc/spec caches (e.g. webidl's MDN cache) —
+    /// request-provided, deliberately outside the output tree.
+    pub cache_dir: Option<PathBuf>,
 }
 
 impl EmitContext {
@@ -80,6 +89,21 @@ impl EmitContext {
 
     pub fn with_config(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.config.insert(key.into(), value.into());
+        self
+    }
+
+    pub fn with_spec_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.spec_path = Some(path.into());
+        self
+    }
+
+    pub fn with_source_url(mut self, url: impl Into<String>) -> Self {
+        self.source_url = Some(url.into());
+        self
+    }
+
+    pub fn with_cache_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.cache_dir = Some(dir.into());
         self
     }
 }
