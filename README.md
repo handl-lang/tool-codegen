@@ -1,6 +1,6 @@
-# engine-codegen
+# tool-codegen
 
-`hnl-engine-codegen` — the desired-state codegen kernel.
+`hnl-tool-codegen` — the desired-state codegen kernel.
 
 The reconciliation half of the org-wide `Lift → Transform →
 Materialize → [Verify] → Reconcile` pipeline (proposal P-001,

@@ -1,4 +1,4 @@
-//! `hnl-engine-codegen` — the desired-state codegen kernel.
+//! `hnl-tool-codegen` — the desired-state codegen kernel.
 //!
 //! The reconciliation half of the org-wide pipeline
 //! `Lift → Transform → Materialize → [Verify] → Reconcile`
@@ -22,7 +22,7 @@
 //! defines [`EmitContext`] — a minimal request shape (output-dir
 //! hint, config map, language name) — and the plugin adapts
 //! `CodegenRequest` into it at the boundary. Engine crates
-//! (`hnl-engine-codemod`, compile backends, …) can depend on this
+//! (`hnl-tool-codemod`, compile backends, …) can depend on this
 //! kernel; nothing here depends back on a plugin.
 //!
 //! # Guarantees

@@ -1,8 +1,8 @@
 //! Store impl tests: `MemoryStore` unit tests + `FsStore`/`tempfile`
 //! integration tests (atomic write, on-disk layout, ref validation).
 
-use hnl_engine_codegen::types::{ArtifactRef, ArtifactStat, ContentHash};
-use hnl_engine_codegen::{ArtifactStore, FsStore, MemoryStore, StoreError};
+use hnl_tool_codegen::types::{ArtifactRef, ArtifactStat, ContentHash};
+use hnl_tool_codegen::{ArtifactStore, FsStore, MemoryStore, StoreError};
 
 fn aref(s: impl Into<String>) -> ArtifactRef {
     ArtifactRef::new(s)

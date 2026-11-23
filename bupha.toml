@@ -1,4 +1,4 @@
-# bupha.toml — committed CI manifest for handl-lang/engine-codegen.
+# bupha.toml — committed CI manifest for handl-lang/tool-codegen.
 #
 # The runner is this repo's ci.sh (cargo xtask gate: fmt -> clippy -D
 # warnings -> test -> doc), executed natively in a detached worktree of
@@ -7,8 +7,8 @@
 # bupha watch --config bupha.toml
 
 [[repos]]
-name = "handl-lang/engine-codegen"
-dir = "/home/luis/GitHub/handl-lang/engine-codegen"
+name = "handl-lang/tool-codegen"
+dir = "/home/luis/GitHub/handl-lang/tool-codegen"
 branch = "refs/heads/main"
   [repos.runner]
   kind = "script"

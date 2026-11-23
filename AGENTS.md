@@ -12,9 +12,9 @@
 
 <!-- /myco:agent-awareness -->
 
-# Agent guide — engine-codegen
+# Agent guide — tool-codegen
 
-The desired-state codegen kernel (`hnl-engine-codegen`), pure Rust —
+The desired-state codegen kernel (`hnl-tool-codegen`), pure Rust —
 no handl host/plugin deps. Implements the lifecycle half of
 proposal P-001 / plan PL-004 Phase 0: `Source<I> → IR → Emitter<I> →
 Change set → Plan/Apply/Destroy/Revert` over a generic
@@ -23,7 +23,7 @@ Change set → Plan/Apply/Destroy/Revert` over a generic
 ## Layout
 
 - `src/` — the whole crate (single-crate layout like
-  `engine-transform`): `types.rs` (`ArtifactRef`/`ContentHash`/
+  `tool-transform`): `types.rs` (`ArtifactRef`/`ContentHash`/
   `ArtifactStat`), `store.rs` (`ArtifactStore` trait, `FsStore`,
   `MemoryStore`), `traits.rs` (`IrModule`/`Source`/`Emitter`/
   `EmitContext`), `change.rs` (`Change`), `manifest.rs`

@@ -1,6 +1,6 @@
-# engine-codegen
+# tool-codegen
 
-`hnl-engine-codegen` is the pure-Rust kernel for the desired-state
+`hnl-tool-codegen` is the pure-Rust kernel for the desired-state
 codegen pipeline: lift anything to a typed IR, materialize the IR to
 a desired `Change` set, optionally verify, then reconcile an
 `ArtifactStore` to that desired state via `Plan`/`Apply`/`Destroy`/

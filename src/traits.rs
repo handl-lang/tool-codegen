@@ -9,7 +9,7 @@
 //! defines `EmitContext`, a minimal kernel-side request shape
 //! (output-dir hint, config map, language name), and the plugin
 //! adapts `CodegenRequest` into it at the boundary. Keeping the
-//! kernel free of host deps is what lets `hnl-engine-codemod` and
+//! kernel free of host deps is what lets `hnl-tool-codemod` and
 //! other engine crates depend on it (engine→engine deps are legal;
 //! engine→host-plugin deps are not).
 

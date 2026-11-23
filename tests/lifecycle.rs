@@ -3,13 +3,13 @@
 //! truncated journal, keep-going policy, and the property tests
 //! `apply∘plan == desired`, `destroy∘apply == original`.
 
-use hnl_engine_codegen::journal::journal_ref;
-use hnl_engine_codegen::manifest::Manifest;
-use hnl_engine_codegen::plan::PlanAction;
-use hnl_engine_codegen::store::ArtifactStore;
-use hnl_engine_codegen::traits::{EmitContext, Emitter, IrKind, IrModule, Source};
-use hnl_engine_codegen::types::{ArtifactRef, ContentHash};
-use hnl_engine_codegen::{
+use hnl_tool_codegen::journal::journal_ref;
+use hnl_tool_codegen::manifest::Manifest;
+use hnl_tool_codegen::plan::PlanAction;
+use hnl_tool_codegen::store::ArtifactStore;
+use hnl_tool_codegen::traits::{EmitContext, Emitter, IrKind, IrModule, Source};
+use hnl_tool_codegen::types::{ArtifactRef, ContentHash};
+use hnl_tool_codegen::{
     ApplyOptions, Change, CodegenError, Engine, FsStore, Journal, ManifestEntry, MemoryStore,
     OnError, RunMeta,
 };
@@ -376,27 +376,27 @@ struct FailStore {
 }
 
 impl ArtifactStore for FailStore {
-    fn read(&self, r: &ArtifactRef) -> Result<Option<Vec<u8>>, hnl_engine_codegen::StoreError> {
+    fn read(&self, r: &ArtifactRef) -> Result<Option<Vec<u8>>, hnl_tool_codegen::StoreError> {
         self.inner.read(r)
     }
-    fn write(&self, r: &ArtifactRef, c: &[u8]) -> Result<(), hnl_engine_codegen::StoreError> {
+    fn write(&self, r: &ArtifactRef, c: &[u8]) -> Result<(), hnl_tool_codegen::StoreError> {
         if r.as_str().contains("bad") {
-            return Err(hnl_engine_codegen::StoreError::Unsupported(format!(
+            return Err(hnl_tool_codegen::StoreError::Unsupported(format!(
                 "injected failure for {r}"
             )));
         }
         self.inner.write(r, c)
     }
-    fn delete(&self, r: &ArtifactRef) -> Result<(), hnl_engine_codegen::StoreError> {
+    fn delete(&self, r: &ArtifactRef) -> Result<(), hnl_tool_codegen::StoreError> {
         self.inner.delete(r)
     }
-    fn hash(&self, r: &ArtifactRef) -> Result<Option<ContentHash>, hnl_engine_codegen::StoreError> {
+    fn hash(&self, r: &ArtifactRef) -> Result<Option<ContentHash>, hnl_tool_codegen::StoreError> {
         self.inner.hash(r)
     }
     fn stat(
         &self,
         r: &ArtifactRef,
-    ) -> Result<Option<hnl_engine_codegen::ArtifactStat>, hnl_engine_codegen::StoreError> {
+    ) -> Result<Option<hnl_tool_codegen::ArtifactStat>, hnl_tool_codegen::StoreError> {
         self.inner.stat(r)
     }
 }
@@ -896,7 +896,7 @@ fn delete_change_journaled_with_before_image() {
         .iter()
         .find(|r| r.artifact.as_str() == "victim.txt")
         .expect("delete record");
-    assert_eq!(del.op, hnl_engine_codegen::JournalOp::Delete);
+    assert_eq!(del.op, hnl_tool_codegen::JournalOp::Delete);
     assert_eq!(del.before_hash, Some(ContentHash::of(b"doomed")));
     assert!(del.before_blob.is_some());
     // Blob actually stored.

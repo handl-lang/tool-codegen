@@ -1,14 +1,14 @@
 [package]
-name = "hnl-engine-codegen"
+name = "hnl-tool-codegen"
 version = "0.1.0"
 edition = "2024"
 description = "The desired-state codegen kernel: Source/I -> IR -> Emitter -> Change set -> Plan/Apply/Destroy/Revert over an ArtifactStore."
 license = "MIT"
-repository = "https://github.com/handl-lang/engine-codegen"
+repository = "https://github.com/handl-lang/tool-codegen"
 readme = "README.md"
 keywords = ["handl", "engine", "codegen", "lifecycle", "artifact-store"]
 categories = ["development-tools"]
-# Git-install only: https://github.com/handl-lang/engine-codegen (no crates.io).
+# Git-install only: https://github.com/handl-lang/tool-codegen (no crates.io).
 publish = false
 
 [features]

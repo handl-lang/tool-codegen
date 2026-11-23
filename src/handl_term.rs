@@ -5,7 +5,7 @@
 //! `handl_calculus::Term` is foreign, so the impl can only live here
 //! (or inside `handl-calculus`, which must stay free of engine deps).
 //! Engine→kernel-crate deps are legal, so compile backends opt in via
-//! `hnl-engine-codegen = { features = ["handl-term"] }` and write
+//! `hnl-tool-codegen = { features = ["handl-term"] }` and write
 //! `impl Emitter<Term> for MyBackend` in their own crates.
 
 use crate::traits::{IrKind, IrModule};
