@@ -77,26 +77,27 @@ impl Plan {
 }
 
 /// Normalize a desired `Change` set: sort by `ArtifactRef`, reject
-/// reserved refs and duplicates. Returns the sorted vec.
+/// reserved refs and duplicates (a `Put` and `Delete` for the same
+/// artifact is ambiguous → rejected). Returns the sorted vec.
 pub fn normalize_changes(changes: &[Change]) -> Result<Vec<Change>, CodegenError> {
     let mut out: Vec<Change> = changes.to_vec();
     for c in &out {
-        if c.artifact.is_reserved() {
+        if c.artifact().is_reserved() {
             return Err(CodegenError::InvalidRef(format!(
                 "{}: reserved kernel prefix {RESERVED_PREFIX}",
-                c.artifact
+                c.artifact()
             )));
         }
-        c.artifact
+        c.artifact()
             .validate_fs_relative()
-            .map_err(|m| CodegenError::InvalidRef(format!("{}: {m}", c.artifact)))?;
+            .map_err(|m| CodegenError::InvalidRef(format!("{}: {m}", c.artifact())))?;
     }
-    out.sort_by(|a, b| a.artifact.cmp(&b.artifact));
+    out.sort_by(|a, b| a.artifact().cmp(b.artifact()));
     for w in out.windows(2) {
-        if w[0].artifact == w[1].artifact {
+        if w[0].artifact() == w[1].artifact() {
             return Err(CodegenError::InvalidRef(format!(
                 "duplicate artifact ref {}",
-                w[0].artifact
+                w[0].artifact()
             )));
         }
     }
@@ -106,7 +107,14 @@ pub fn normalize_changes(changes: &[Change]) -> Result<Vec<Change>, CodegenError
 /// Compute the plan: diff `desired` (normalized) against the store,
 /// plus deletes for prior-manifest artifacts missing from desired.
 ///
-/// Fail-closed: a `Change.before_hash` that disagrees with the store
+/// `Change::Delete` semantics: artifact present → `Delete` action;
+/// artifact absent → `Unchanged` (a no-op, never an error). Deletes
+/// produced either way are journaled with before-images at apply, so
+/// `revert` restores them; they never become manifest entries (the
+/// manifest records the desired *end state* — a deleted artifact
+/// simply isn't one).
+///
+/// Fail-closed: a `Put.before_hash` that disagrees with the store
 /// is `CodegenError::Drift`.
 pub fn compute_plan<S: ArtifactStore + ?Sized>(
     store: &S,
@@ -115,32 +123,47 @@ pub fn compute_plan<S: ArtifactStore + ?Sized>(
 ) -> Result<Plan, CodegenError> {
     let desired = normalize_changes(desired)?;
     let desired_refs: std::collections::BTreeSet<&ArtifactRef> =
-        desired.iter().map(|c| &c.artifact).collect();
+        desired.iter().map(|c| c.artifact()).collect();
 
     let mut entries = Vec::with_capacity(desired.len());
     for c in &desired {
-        let cur = store.hash(&c.artifact)?;
-        if let Some(claimed) = c.before_hash
+        let artifact = c.artifact().clone();
+        let cur = store.hash(&artifact)?;
+        if let Some(claimed) = c.before_hash()
             && cur != Some(claimed)
         {
-            return Err(CodegenError::drift(c.artifact.clone(), Some(claimed), cur));
+            return Err(CodegenError::drift(artifact, Some(claimed), cur));
         }
-        let after = c.after_hash();
-        let action = match cur {
-            None => PlanAction::Create,
-            Some(h) if h == after => PlanAction::Unchanged,
-            Some(_) => PlanAction::Update,
+        let (action, after) = match c {
+            Change::Put { content, .. } => {
+                let after = ContentHash::of(content);
+                let action = match cur {
+                    None => PlanAction::Create,
+                    Some(h) if h == after => PlanAction::Unchanged,
+                    Some(_) => PlanAction::Update,
+                };
+                (action, Some(after))
+            }
+            Change::Delete { .. } => match cur {
+                // Emitter-declared cleanup of an existing artifact.
+                Some(_) => (PlanAction::Delete, None),
+                // Already absent — no-op, not an error.
+                None => (PlanAction::Unchanged, None),
+            },
         };
         entries.push(PlanEntry {
-            artifact: c.artifact.clone(),
+            artifact,
             action,
             before_hash: cur,
-            after_hash: Some(after),
+            after_hash: after,
         });
     }
 
     if let Some(m) = prior {
         for me in &m.artifacts {
+            // desired_refs covers both Put and Delete changes — an
+            // emitter-declared Delete for a manifest artifact dedupes
+            // here (the Change::Delete branch above already planned it).
             if desired_refs.contains(&me.artifact) {
                 continue;
             }

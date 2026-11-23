@@ -188,7 +188,9 @@ impl<'s, S: ArtifactStore + ?Sized> Engine<'s, S> {
     }
 
     /// Diff desired state (+ prior manifest for deletes) against the
-    /// store. Fail-closed on `Change.before_hash` drift.
+    /// store. Fail-closed on `Change::Put.before_hash` drift.
+    /// `Change::Delete` entries journal before-images and delete —
+    /// revert restores them; they never enter the manifest.
     pub fn plan(&self, desired: &[Change], prior: Option<&Manifest>) -> Result<Plan, CodegenError> {
         compute_plan(self.store, desired, prior)
     }
@@ -219,7 +221,7 @@ impl<'s, S: ArtifactStore + ?Sized> Engine<'s, S> {
             ..ApplyReport::default()
         };
         let desired_by_ref: BTreeMap<&ArtifactRef, &Change> =
-            desired.iter().map(|c| (&c.artifact, c)).collect();
+            desired.iter().map(|c| (c.artifact(), c)).collect();
 
         let mut seq = journal.next_seq()?;
         for entry in &plan.entries {
@@ -242,12 +244,22 @@ impl<'s, S: ArtifactStore + ?Sized> Engine<'s, S> {
                 }
             }
             let result = match entry.action {
+                // Deletes — emitter-declared (`Change::Delete`) or
+                // manifest-owned stale — share the same journaled
+                // before-image + delete path.
                 PlanAction::Delete => self.journaled_delete(&journal, &mut seq, entry),
                 _ => {
                     let change = desired_by_ref
                         .get(&entry.artifact)
                         .expect("plan entry from desired set");
-                    self.journaled_write(&journal, &mut seq, entry, change)
+                    match change {
+                        Change::Put { content, .. } => {
+                            self.journaled_write_bytes(&journal, &mut seq, entry, content)
+                        }
+                        // Unreachable: Change::Delete plans as
+                        // Delete/Unchanged only — defensive fallback.
+                        Change::Delete { .. } => self.journaled_delete(&journal, &mut seq, entry),
+                    }
                 }
             };
             match result {
@@ -271,11 +283,19 @@ impl<'s, S: ArtifactStore + ?Sized> Engine<'s, S> {
                 target: meta.target.clone(),
                 generator_version: meta.generator_version.clone(),
                 source_hashes: meta.source_hashes.clone(),
+                // The manifest records the desired END STATE: only
+                // `Put` artifacts are owned entries. `Change::Delete`
+                // removals are journaled (revert can restore them) but
+                // never become manifest entries — a deleted artifact
+                // simply isn't part of the desired state.
                 artifacts: desired
                     .iter()
-                    .map(|c| ManifestEntry {
-                        artifact: c.artifact.clone(),
-                        hash: c.after_hash(),
+                    .filter_map(|c| match c {
+                        Change::Put { artifact, .. } => Some(ManifestEntry {
+                            artifact: artifact.clone(),
+                            hash: c.after_hash().expect("Put always has after_hash"),
+                        }),
+                        Change::Delete { .. } => None,
                     })
                     .collect(),
                 run_id: run_id.clone(),
@@ -486,16 +506,6 @@ impl<'s, S: ArtifactStore + ?Sized> Engine<'s, S> {
     }
 
     /// Journal write-ahead + store write + post-write hash verify.
-    fn journaled_write(
-        &self,
-        journal: &Journal<'_, S>,
-        seq: &mut u64,
-        entry: &crate::plan::PlanEntry,
-        change: &Change,
-    ) -> Result<(), CodegenError> {
-        self.journaled_write_bytes(journal, seq, entry, &change.content)
-    }
-
     fn journaled_write_bytes(
         &self,
         journal: &Journal<'_, S>,

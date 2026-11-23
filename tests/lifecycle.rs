@@ -184,8 +184,11 @@ fn plan_fails_closed_on_before_hash_lie() {
     let store = MemoryStore::new();
     let engine = Engine::new(&store);
     store.write(&aref("x"), b"real").unwrap();
-    let mut c = Change::text("x", "desired");
-    c.before_hash = Some(ContentHash::of(b"not-the-store-content"));
+    let c = Change::put_with_before(
+        "x",
+        Some(ContentHash::of(b"not-the-store-content")),
+        b"desired".to_vec(),
+    );
     let err = engine.plan(&[c], None).unwrap_err();
     assert!(matches!(err, CodegenError::Drift { .. }));
 }
@@ -307,8 +310,11 @@ fn apply_fails_closed_on_drift() {
 
     // True drift refusal: a Change claiming a before_hash that the
     // store contradicts fails at plan inside apply.
-    let mut lying = Change::text("y.txt", "why");
-    lying.before_hash = Some(ContentHash::of(b"never-existed"));
+    let lying = Change::put_with_before(
+        "y.txt",
+        Some(ContentHash::of(b"never-existed")),
+        b"why".to_vec(),
+    );
     let res = engine.apply(&[lying], None, &meta("gen"), &ApplyOptions::default());
     // y.txt absent → before_hash Some(...) vs cur None → drift error
     // surfaces from compute_plan as Err.
@@ -680,10 +686,10 @@ fn property_apply_plan_and_destroy_roundtrip() {
         assert!(report.clean(), "case {case}: {:?}", report.failures);
         for c in &changes {
             assert_eq!(
-                store.read(&c.artifact).unwrap().unwrap(),
-                c.content,
+                store.read(c.artifact()).unwrap().unwrap(),
+                c.content().unwrap(),
                 "case {case}: {}",
-                c.artifact
+                c.artifact()
             );
         }
 
@@ -730,4 +736,170 @@ fn property_reapply_is_idempotent() {
         )
         .unwrap();
     assert_eq!(report.created + report.updated + report.deleted, 0);
+}
+
+// ------------------------------------------------------------------
+// Change::Delete — emitter-declared stale-artifact cleanup
+// ------------------------------------------------------------------
+
+#[test]
+fn plan_shows_delete_for_existing_artifact() {
+    let store = MemoryStore::new();
+    let engine = Engine::new(&store);
+    store.write(&aref("stale.txt"), b"old").unwrap();
+
+    let changes = vec![Change::delete("stale.txt")];
+    let plan = engine.plan(&changes, None).unwrap();
+    assert_eq!(plan.entries.len(), 1);
+    assert_eq!(plan.entries[0].action, PlanAction::Delete);
+    assert_eq!(plan.entries[0].before_hash, Some(ContentHash::of(b"old")));
+    assert_eq!(plan.entries[0].after_hash, None);
+}
+
+#[test]
+fn delete_of_missing_artifact_is_noop() {
+    let store = MemoryStore::new();
+    let engine = Engine::new(&store);
+
+    let changes = vec![Change::delete("ghost.txt")];
+    let plan = engine.plan(&changes, None).unwrap();
+    // Absent → Unchanged no-op, not an error and not a Delete.
+    assert_eq!(plan.entries[0].action, PlanAction::Unchanged);
+    assert!(plan.is_clean());
+
+    let report = engine
+        .apply(&changes, None, &meta("gen"), &ApplyOptions::default())
+        .unwrap();
+    assert!(report.clean(), "{:?}", report.failures);
+    assert_eq!(report.deleted, 0);
+    assert_eq!(report.unchanged, 1);
+}
+
+#[test]
+fn apply_delete_then_revert_restores() {
+    let store = MemoryStore::new();
+    let engine = Engine::new(&store);
+    store.write(&aref("stale.txt"), b"precious-old").unwrap();
+
+    // Emitter declares: write fresh.txt, delete stale.txt.
+    let changes = vec![
+        Change::text("fresh.txt", "new"),
+        Change::delete("stale.txt"),
+    ];
+    let report = engine
+        .apply(&changes, None, &meta("gen"), &ApplyOptions::default())
+        .unwrap();
+    assert!(report.clean(), "{:?}", report.failures);
+    assert_eq!(report.deleted, 1);
+    assert!(store.read(&aref("stale.txt")).unwrap().is_none());
+    assert_eq!(store.read(&aref("fresh.txt")).unwrap().unwrap(), b"new");
+
+    // Journal carried the before-image: revert restores stale.txt.
+    let rev = engine.revert("run-gen", &ApplyOptions::default()).unwrap();
+    assert!(rev.failures.is_empty(), "{:?}", rev.failures);
+    assert_eq!(
+        store.read(&aref("stale.txt")).unwrap().unwrap(),
+        b"precious-old"
+    );
+    // fresh.txt was a create → revert removes it.
+    assert!(store.read(&aref("fresh.txt")).unwrap().is_none());
+}
+
+#[test]
+fn delete_changes_never_enter_manifest() {
+    let store = MemoryStore::new();
+    let engine = Engine::new(&store);
+    store.write(&aref("old.txt"), b"stale").unwrap();
+
+    let changes = vec![Change::text("new.txt", "N"), Change::delete("old.txt")];
+    engine
+        .apply(&changes, None, &meta("gen"), &ApplyOptions::default())
+        .unwrap();
+
+    let manifest: Manifest =
+        serde_json::from_slice(&store.read(&Manifest::artifact_ref("gen")).unwrap().unwrap())
+            .unwrap();
+    // Only the Put artifact is owned; the deleted one is absent.
+    assert_eq!(manifest.artifacts.len(), 1);
+    assert_eq!(manifest.artifacts[0].artifact.as_str(), "new.txt");
+}
+
+#[test]
+fn emitter_delete_of_manifest_artifact_dedupes_with_manifest_delete() {
+    let store = MemoryStore::new();
+    let engine = Engine::new(&store);
+
+    // Run 1 owns keep.txt + drop.txt.
+    engine
+        .apply(
+            &desired(&[("keep.txt", "K"), ("drop.txt", "D")]),
+            None,
+            &meta("gen"),
+            &ApplyOptions::default(),
+        )
+        .unwrap();
+    let prior: Manifest =
+        serde_json::from_slice(&store.read(&Manifest::artifact_ref("gen")).unwrap().unwrap())
+            .unwrap();
+
+    // Run 2: emitter explicitly deletes drop.txt (also manifest-owned)
+    // and keeps keep.txt unchanged.
+    let changes = vec![Change::text("keep.txt", "K"), Change::delete("drop.txt")];
+    let plan = engine.plan(&changes, Some(&prior)).unwrap();
+    // Exactly ONE delete entry — the manifest diff must not double it.
+    assert_eq!(plan.deletes().count(), 1);
+    assert_eq!(plan.deletes().next().unwrap().artifact.as_str(), "drop.txt");
+
+    let report = engine
+        .apply(
+            &changes,
+            Some(&prior),
+            &meta("gen"),
+            &ApplyOptions::default(),
+        )
+        .unwrap();
+    assert!(report.clean(), "{:?}", report.failures);
+    assert_eq!(report.deleted, 1);
+    assert!(store.read(&aref("drop.txt")).unwrap().is_none());
+}
+
+#[test]
+fn put_and_delete_same_artifact_is_rejected() {
+    let store = MemoryStore::new();
+    let engine = Engine::new(&store);
+    let changes = vec![Change::text("x", "1"), Change::delete("x")];
+    assert!(matches!(
+        engine.plan(&changes, None),
+        Err(CodegenError::InvalidRef(_))
+    ));
+}
+
+#[test]
+fn delete_change_journaled_with_before_image() {
+    let store = MemoryStore::new();
+    let engine = Engine::new(&store);
+    store.write(&aref("victim.txt"), b"doomed").unwrap();
+
+    engine
+        .apply(
+            &[Change::delete("victim.txt")],
+            None,
+            &meta("gen"),
+            &ApplyOptions::default(),
+        )
+        .unwrap();
+
+    // The delete was journaled as op=delete WITH a before-image blob.
+    let journal = Journal::open(&store, "run-gen");
+    let recs = journal.records().unwrap();
+    let del = recs
+        .iter()
+        .find(|r| r.artifact.as_str() == "victim.txt")
+        .expect("delete record");
+    assert_eq!(del.op, hnl_engine_codegen::JournalOp::Delete);
+    assert_eq!(del.before_hash, Some(ContentHash::of(b"doomed")));
+    assert!(del.before_blob.is_some());
+    // Blob actually stored.
+    let blob = del.before_blob.clone().unwrap();
+    assert_eq!(store.read(&blob).unwrap().unwrap(), b"doomed");
 }
