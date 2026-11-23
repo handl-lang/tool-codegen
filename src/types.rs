@@ -170,7 +170,7 @@ impl<'de> Deserialize<'de> for ContentHash {
 
 /// Cheap stat pre-filter for `ArtifactStore::stat` — size + mtime let
 /// callers skip a re-hash when nothing changed.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ArtifactStat {
     pub size: u64,
     pub mtime: Option<std::time::SystemTime>,

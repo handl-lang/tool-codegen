@@ -49,9 +49,27 @@ pub trait ArtifactStore {
 
 /// Filesystem-backed store rooted at a directory. `ArtifactRef` is a
 /// validated relative path under the root.
+///
+/// `hash()` carries an in-memory **stat→hash memo**: the first hash of
+/// an artifact records `(size, mtime) → ContentHash`; a later `hash()`
+/// whose `stat` is unchanged returns the memoized hash without
+/// re-reading the file — the same mtime/size pre-filter handl-run's
+/// input cache (`crates/run/src/cache.rs`) applies to its manifests.
+/// `write` primes the memo (the post-write verify in `Engine` then
+/// costs one `stat`), `delete`/absent-stat evict it, and an external
+/// rewrite that changes size or mtime misses and re-hashes.
+///
+/// Caveat (inherited from the pre-filter design): a rewrite that
+/// preserves both size *and* mtime is undetectable — the memo would
+/// serve the stale hash. mtimes carry nanoseconds and `FsStore`
+/// writes always move mtime, so this requires deliberate timestamp
+/// forgery; callers needing stronger guarantees should hash through a
+/// fresh `FsStore` (empty memo) per run.
 pub struct FsStore {
     root: PathBuf,
     tmp_counter: AtomicUsize,
+    /// `(stat fingerprint, content hash)` per artifact ref.
+    hash_memo: Mutex<BTreeMap<ArtifactRef, (ArtifactStat, ContentHash)>>,
 }
 
 impl FsStore {
@@ -59,7 +77,16 @@ impl FsStore {
         Self {
             root: root.into(),
             tmp_counter: AtomicUsize::new(0),
+            hash_memo: Mutex::new(BTreeMap::new()),
         }
+    }
+
+    /// The memo is a pure optimization — a poisoned lock must never
+    /// fail an operation, so recover the guard and keep going.
+    fn memo(
+        &self,
+    ) -> std::sync::MutexGuard<'_, BTreeMap<ArtifactRef, (ArtifactStat, ContentHash)>> {
+        self.hash_memo.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn root(&self) -> &Path {
@@ -122,27 +149,64 @@ impl ArtifactStore for FsStore {
 
     fn write(&self, r: &ArtifactRef, content: &[u8]) -> Result<(), StoreError> {
         let path = self.path_for(r)?;
-        self.atomic_write(&path, content)
+        self.atomic_write(&path, content)?;
+        // Prime the hash memo with the post-write stat + the hash of
+        // the bytes just written — the engine's post-write verify then
+        // costs one `stat` instead of a full re-read.
+        match self.stat(r) {
+            Ok(Some(stat)) => {
+                self.memo()
+                    .insert(r.clone(), (stat, ContentHash::of(content)));
+            }
+            // Stat failed after a successful write: evict conservatively.
+            _ => {
+                self.memo().remove(r);
+            }
+        }
+        Ok(())
     }
 
     fn delete(&self, r: &ArtifactRef) -> Result<(), StoreError> {
         let path = self.path_for(r)?;
-        match std::fs::remove_file(&path) {
+        let result = match std::fs::remove_file(&path) {
             Ok(()) => Ok(()),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(StoreError::io("delete", path.display().to_string(), e)),
-        }
+        };
+        // Evict whether or not the file existed — a stale memo entry
+        // must never outlive the artifact.
+        self.memo().remove(r);
+        result
     }
 
     fn hash(&self, r: &ArtifactRef) -> Result<Option<ContentHash>, StoreError> {
-        let path = self.path_for(r)?;
-        match std::fs::File::open(&path) {
-            Ok(f) => ContentHash::of_reader(std::io::BufReader::new(f))
-                .map(Some)
-                .map_err(|e| StoreError::io("hash", path.display().to_string(), e)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-            Err(e) => Err(StoreError::io("hash", path.display().to_string(), e)),
+        // Stat first: it doubles as the existence check and the
+        // pre-filter fingerprint.
+        let Some(stat) = self.stat(r)? else {
+            self.memo().remove(r);
+            return Ok(None);
+        };
+        if let Some((s, h)) = self.memo().get(r)
+            && *s == stat
+        {
+            return Ok(Some(*h));
         }
+        let path = self.path_for(r)?;
+        let hash = match std::fs::File::open(&path) {
+            Ok(f) => ContentHash::of_reader(std::io::BufReader::new(f))
+                .map_err(|e| StoreError::io("hash", path.display().to_string(), e))?,
+            // Deleted between stat and open — treat as absent.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                self.memo().remove(r);
+                return Ok(None);
+            }
+            Err(e) => return Err(StoreError::io("hash", path.display().to_string(), e)),
+        };
+        // Record under the stat taken *before* hashing: a mid-hash
+        // rewrite moves mtime, so the next call's stat misses and
+        // re-hashes — the safe direction.
+        self.memo().insert(r.clone(), (stat, hash));
+        Ok(Some(hash))
     }
 
     fn stat(&self, r: &ArtifactRef) -> Result<Option<ArtifactStat>, StoreError> {
@@ -239,5 +303,104 @@ impl ArtifactStore for MemoryStore {
                 size: b.len() as u64,
                 mtime: None,
             }))
+    }
+}
+
+// ------------------------------------------------------------------
+// FsStore hash memo (stat→hash pre-filter)
+// ------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::ArtifactRef;
+    use std::time::{Duration, SystemTime};
+
+    fn aref(s: &str) -> ArtifactRef {
+        ArtifactRef::new(s)
+    }
+
+    #[test]
+    fn hash_memo_primes_on_write_and_evicts_on_delete() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = FsStore::new(tmp.path());
+        let r = aref("f.txt");
+
+        s.write(&r, b"v1").unwrap();
+        assert_eq!(s.memo().len(), 1, "write should prime the memo");
+        assert_eq!(
+            s.hash(&r).unwrap().unwrap(),
+            ContentHash::of(b"v1"),
+            "memoized hash must match content"
+        );
+
+        s.delete(&r).unwrap();
+        assert!(s.memo().is_empty(), "delete must evict the memo");
+        assert!(s.hash(&r).unwrap().is_none());
+    }
+
+    #[test]
+    fn hash_memo_rehashes_on_external_rewrite() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = FsStore::new(tmp.path());
+        let r = aref("f.txt");
+        let path = tmp.path().join("f.txt");
+
+        s.write(&r, b"v1").unwrap();
+        assert_eq!(s.hash(&r).unwrap().unwrap(), ContentHash::of(b"v1"));
+
+        // External rewrite, different size → stat fingerprint moves.
+        std::fs::write(&path, b"v2-much-longer").unwrap();
+        assert_eq!(
+            s.hash(&r).unwrap().unwrap(),
+            ContentHash::of(b"v2-much-longer"),
+            "size change must miss the memo"
+        );
+
+        // External delete → absent, memo evicted.
+        std::fs::remove_file(&path).unwrap();
+        assert!(s.hash(&r).unwrap().is_none());
+        assert!(s.memo().is_empty());
+    }
+
+    #[test]
+    fn hash_memo_rehashes_on_same_size_rewrite_with_new_mtime() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = FsStore::new(tmp.path());
+        let r = aref("f.txt");
+        let path = tmp.path().join("f.txt");
+
+        s.write(&r, b"aaaa").unwrap();
+        assert_eq!(s.hash(&r).unwrap().unwrap(), ContentHash::of(b"aaaa"));
+
+        // Same size, different bytes — only mtime distinguishes it.
+        // Pin the mtime forward explicitly so the test is independent
+        // of filesystem timestamp granularity.
+        std::fs::write(&path, b"bbbb").unwrap();
+        let f = std::fs::File::options().write(true).open(&path).unwrap();
+        f.set_times(
+            std::fs::FileTimes::new().set_modified(SystemTime::now() + Duration::from_secs(60)),
+        )
+        .unwrap();
+        drop(f);
+
+        assert_eq!(
+            s.hash(&r).unwrap().unwrap(),
+            ContentHash::of(b"bbbb"),
+            "mtime change must miss the memo even at equal size"
+        );
+    }
+
+    #[test]
+    fn hash_memo_unknown_artifact_hashes_and_records() {
+        let tmp = tempfile::tempdir().unwrap();
+        let s = FsStore::new(tmp.path());
+        let r = aref("external.txt");
+        // File appears without going through the store.
+        std::fs::write(tmp.path().join("external.txt"), b"ext").unwrap();
+        assert_eq!(s.hash(&r).unwrap().unwrap(), ContentHash::of(b"ext"));
+        assert_eq!(s.memo().len(), 1);
+        // Repeat hash: memo hit, same answer.
+        assert_eq!(s.hash(&r).unwrap().unwrap(), ContentHash::of(b"ext"));
     }
 }

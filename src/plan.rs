@@ -1,5 +1,21 @@
 //! `Plan`/`PlanEntry`/`PlanAction` — the diff between desired state
 //! (`Change` set + prior `Manifest`) and the store.
+//!
+//! # Performance notes
+//!
+//! `compute_plan` costs one `store.hash` per artifact — for `FsStore`
+//! that is one `stat` plus (on a cold stat→hash memo) one streaming
+//! BLAKE3 pass; unchanged artifacts across repeated `plan`/`apply`
+//! cycles on the same store instance cost only the `stat`. BLAKE3 is
+//! already the fast path — no cheaper pre-hash is warranted.
+//!
+//! A *plan-result* cache (keyed by manifest hash + store fingerprint)
+//! is deliberately **deferred**: fingerprinting the store is itself a
+//! per-artifact stat sweep, and with the `FsStore` memo the residual
+//! plan cost is already ~one syscall per artifact. Revisit only if
+//! profiling shows `plan` dominating after the memo is warm.
+//! `Manifest::generator_version` is the documented key component for
+//! when that day comes.
 
 use crate::change::Change;
 use crate::error::CodegenError;
@@ -76,12 +92,11 @@ impl Plan {
     }
 }
 
-/// Normalize a desired `Change` set: sort by `ArtifactRef`, reject
-/// reserved refs and duplicates (a `Put` and `Delete` for the same
-/// artifact is ambiguous → rejected). Returns the sorted vec.
-pub fn normalize_changes(changes: &[Change]) -> Result<Vec<Change>, CodegenError> {
-    let mut out: Vec<Change> = changes.to_vec();
-    for c in &out {
+/// Sort `changes` by `ArtifactRef` without cloning content — the
+/// internal fast path `compute_plan`/`Engine::apply` use so a plan
+/// doesn't deep-copy every desired byte string.
+pub(crate) fn sorted_changes(changes: &[Change]) -> Result<Vec<&Change>, CodegenError> {
+    for c in changes {
         if c.artifact().is_reserved() {
             return Err(CodegenError::InvalidRef(format!(
                 "{}: reserved kernel prefix {RESERVED_PREFIX}",
@@ -92,6 +107,7 @@ pub fn normalize_changes(changes: &[Change]) -> Result<Vec<Change>, CodegenError
             .validate_fs_relative()
             .map_err(|m| CodegenError::InvalidRef(format!("{}: {m}", c.artifact())))?;
     }
+    let mut out: Vec<&Change> = changes.iter().collect();
     out.sort_by(|a, b| a.artifact().cmp(b.artifact()));
     for w in out.windows(2) {
         if w[0].artifact() == w[1].artifact() {
@@ -102,6 +118,16 @@ pub fn normalize_changes(changes: &[Change]) -> Result<Vec<Change>, CodegenError
         }
     }
     Ok(out)
+}
+
+/// Normalize a desired `Change` set: sort by `ArtifactRef`, reject
+/// reserved refs and duplicates (a `Put` and `Delete` for the same
+/// artifact is ambiguous → rejected). Returns the sorted vec.
+///
+/// Clones the set (content included) — public-API convenience.
+/// In-crate callers use `sorted_changes` to avoid the copy.
+pub fn normalize_changes(changes: &[Change]) -> Result<Vec<Change>, CodegenError> {
+    Ok(sorted_changes(changes)?.into_iter().cloned().collect())
 }
 
 /// Compute the plan: diff `desired` (normalized) against the store,
@@ -121,12 +147,23 @@ pub fn compute_plan<S: ArtifactStore + ?Sized>(
     desired: &[Change],
     prior: Option<&Manifest>,
 ) -> Result<Plan, CodegenError> {
-    let desired = normalize_changes(desired)?;
+    let desired = sorted_changes(desired)?;
+    compute_plan_sorted(store, &desired, prior)
+}
+
+/// `compute_plan` over an already-normalized (validated + sorted)
+/// change set — `Engine::apply` uses this so the set is normalized
+/// once per run instead of once per stage.
+pub(crate) fn compute_plan_sorted<S: ArtifactStore + ?Sized>(
+    store: &S,
+    desired: &[&Change],
+    prior: Option<&Manifest>,
+) -> Result<Plan, CodegenError> {
     let desired_refs: std::collections::BTreeSet<&ArtifactRef> =
         desired.iter().map(|c| c.artifact()).collect();
 
     let mut entries = Vec::with_capacity(desired.len());
-    for c in &desired {
+    for &c in desired {
         let artifact = c.artifact().clone();
         let cur = store.hash(&artifact)?;
         if let Some(claimed) = c.before_hash()

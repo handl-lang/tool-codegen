@@ -193,6 +193,61 @@ fn plan_fails_closed_on_before_hash_lie() {
     assert!(matches!(err, CodegenError::Drift { .. }));
 }
 
+#[test]
+fn plan_is_order_independent_and_sorted() {
+    let store = MemoryStore::new();
+    let engine = Engine::new(&store);
+    // Mixed store state so every action class appears.
+    store.write(&aref("same.txt"), b"S").unwrap();
+    store.write(&aref("diff.txt"), b"old").unwrap();
+    store.write(&aref("owned.txt"), b"owned").unwrap();
+    let prior = Manifest {
+        target: "t".into(),
+        generator_version: "v".into(),
+        source_hashes: BTreeMap::new(),
+        artifacts: vec![ManifestEntry {
+            artifact: aref("owned.txt"),
+            hash: ContentHash::of(b"owned"),
+        }],
+        run_id: "r0".into(),
+    };
+
+    let base = desired(&[
+        ("z-new.txt", "Z"),
+        ("same.txt", "S"),
+        ("diff.txt", "D"),
+        ("a-new.txt", "A"),
+    ]);
+    let p1 = engine.plan(&base, Some(&prior)).unwrap();
+
+    // Every permutation of the input yields the identical Plan —
+    // normalization sorts by ArtifactRef before diffing.
+    let orders: Vec<Vec<Change>> = vec![
+        base.iter().rev().cloned().collect(),
+        vec![
+            base[2].clone(),
+            base[0].clone(),
+            base[3].clone(),
+            base[1].clone(),
+        ],
+        vec![
+            base[1].clone(),
+            base[3].clone(),
+            base[0].clone(),
+            base[2].clone(),
+        ],
+    ];
+    for (i, changes) in orders.iter().enumerate() {
+        let p = engine.plan(changes, Some(&prior)).unwrap();
+        assert_eq!(p, p1, "permutation {i} produced a different plan");
+    }
+    // Entries sorted by ArtifactRef.
+    let keys: Vec<&str> = p1.entries.iter().map(|e| e.artifact.as_str()).collect();
+    let mut sorted = keys.clone();
+    sorted.sort();
+    assert_eq!(keys, sorted);
+}
+
 // ------------------------------------------------------------------
 // Apply
 // ------------------------------------------------------------------
@@ -619,6 +674,51 @@ fn fs_store_manifest_and_journal_on_disk() {
         .filter(|e| e.file_name().to_string_lossy().contains("codegen-tmp"))
         .collect();
     assert!(leftovers.is_empty());
+}
+
+#[test]
+fn fs_store_hash_memo_does_not_mask_external_drift() {
+    let tmp = tempfile::tempdir().unwrap();
+    let store = FsStore::new(tmp.path());
+    let engine = Engine::new(&store);
+    let changes = desired(&[("out.txt", "generated")]);
+    engine
+        .apply(&changes, None, &meta("gen"), &ApplyOptions::default())
+        .unwrap();
+
+    // Warm the memo: plan once (all Unchanged).
+    let manifest: Manifest =
+        serde_json::from_slice(&store.read(&Manifest::artifact_ref("gen")).unwrap().unwrap())
+            .unwrap();
+    let plan = engine.plan(&changes, Some(&manifest)).unwrap();
+    assert!(plan.is_clean());
+
+    // External edit (different size) — the stat pre-filter must miss
+    // and the plan must see the drift as an Update, not Unchanged.
+    std::fs::write(tmp.path().join("out.txt"), b"hand-edited-longer").unwrap();
+    let plan = engine.plan(&changes, Some(&manifest)).unwrap();
+    let entry = plan
+        .entries
+        .iter()
+        .find(|e| e.artifact.as_str() == "out.txt")
+        .unwrap();
+    assert_eq!(entry.action, PlanAction::Update);
+
+    // Re-apply converges back to desired through the same store.
+    let report = engine
+        .apply(
+            &changes,
+            Some(&manifest),
+            &meta("gen"),
+            &ApplyOptions::default(),
+        )
+        .unwrap();
+    assert!(report.clean(), "{:?}", report.failures);
+    assert_eq!(report.updated, 1);
+    assert_eq!(
+        std::fs::read(tmp.path().join("out.txt")).unwrap(),
+        b"generated"
+    );
 }
 
 // ------------------------------------------------------------------

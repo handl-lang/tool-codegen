@@ -19,7 +19,7 @@ use crate::change::Change;
 use crate::error::CodegenError;
 use crate::journal::{JOURNAL_VERSION, Journal, JournalOp, JournalRecord, capture_before};
 use crate::manifest::{Manifest, ManifestEntry, ref_safe};
-use crate::plan::{Plan, PlanAction, compute_plan, normalize_changes};
+use crate::plan::{Plan, PlanAction, compute_plan, compute_plan_sorted, sorted_changes};
 use crate::store::ArtifactStore;
 use crate::types::{ArtifactRef, ContentHash};
 use serde::{Deserialize, Serialize};
@@ -208,8 +208,10 @@ impl<'s, S: ArtifactStore + ?Sized> Engine<'s, S> {
         meta: &RunMeta,
         opts: &ApplyOptions,
     ) -> Result<ApplyReport, CodegenError> {
-        let desired = normalize_changes(desired)?;
-        let plan = compute_plan(self.store, &desired, prior)?;
+        // Sort refs once (no content clone) and plan over them —
+        // the manifest pass below reuses the same ordering.
+        let desired = sorted_changes(desired)?;
+        let plan = compute_plan_sorted(self.store, &desired, prior)?;
         let run_id = if meta.run_id.is_empty() {
             meta.target.clone()
         } else {
@@ -221,7 +223,7 @@ impl<'s, S: ArtifactStore + ?Sized> Engine<'s, S> {
             ..ApplyReport::default()
         };
         let desired_by_ref: BTreeMap<&ArtifactRef, &Change> =
-            desired.iter().map(|c| (c.artifact(), c)).collect();
+            desired.iter().map(|&c| (c.artifact(), c)).collect();
 
         let mut seq = journal.next_seq()?;
         for entry in &plan.entries {
@@ -287,15 +289,18 @@ impl<'s, S: ArtifactStore + ?Sized> Engine<'s, S> {
                 // `Put` artifacts are owned entries. `Change::Delete`
                 // removals are journaled (revert can restore them) but
                 // never become manifest entries — a deleted artifact
-                // simply isn't part of the desired state.
-                artifacts: desired
+                // simply isn't part of the desired state. Hashes come
+                // from the plan entries (`after_hash` was computed once
+                // during planning) — no second pass over content.
+                artifacts: plan
+                    .entries
                     .iter()
-                    .filter_map(|c| match c {
-                        Change::Put { artifact, .. } => Some(ManifestEntry {
-                            artifact: artifact.clone(),
-                            hash: c.after_hash().expect("Put always has after_hash"),
+                    .filter_map(|e| match desired_by_ref.get(&e.artifact) {
+                        Some(Change::Put { .. }) => Some(ManifestEntry {
+                            artifact: e.artifact.clone(),
+                            hash: e.after_hash.expect("Put always has after_hash"),
                         }),
-                        Change::Delete { .. } => None,
+                        _ => None,
                     })
                     .collect(),
                 run_id: run_id.clone(),
