@@ -2,6 +2,7 @@
 name = "hnl-tool-codegen"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 description = "The desired-state codegen kernel: Source/I -> IR -> Emitter -> Change set -> Plan/Apply/Destroy/Revert over an ArtifactStore."
 license = "MIT"
 repository = "https://github.com/handl-lang/tool-codegen"
