@@ -147,6 +147,10 @@ name = "handl-lib-serialize"
 version = "0.1.0"
 
 [[patch.unused]]
+name = "hnl-tool-parse-pratt"
+version = "0.1.0"
+
+[[patch.unused]]
 name = "hnl-exec-cranelift"
 version = "0.1.0"
 
@@ -163,7 +167,7 @@ name = "handl-plugin-lib-serialize-toml-c"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "hnl-tool-parse-pratt"
+name = "handl-host-tensor"
 version = "0.1.0"
 
 [[patch.unused]]
@@ -419,11 +423,11 @@ name = "handl-lib-comb"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-plugin-lib-lang-lex"
+name = "handl-kit-pkg"
 version = "0.1.0"
 
 [[patch.unused]]
-name = "handl-kit-pkg"
+name = "handl-plugin-lib-lang-lex"
 version = "0.1.0"
 
 [[patch.unused]]
