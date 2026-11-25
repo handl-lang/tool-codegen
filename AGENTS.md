@@ -35,7 +35,8 @@ Change set → Plan/Apply/Destroy/Revert` over a generic
   integration), `lifecycle.rs` (plan/apply/destroy/revert/resume,
   drift refusal, crash-resume, property tests).
 - `xtask/` — repo gate tasks (`fmt`, `clippy`, `test`, `doc`,
-  `gate`); `ci.sh` is the bupha entry.
+  `gate`); `ci.sh` is a local convenience entry — the bupha gate is
+  `workflows/gate.yaml` (rust campaign).
 
 ## Conventions
 
